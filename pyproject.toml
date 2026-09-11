@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["patchbay_llm"]
+
+[project]
+name = "patchbay-llm"
+version = "0.1.0"
+description = "Re-usable algorithms and utilities for advanced LLM / agentic programming"
+requires-python = ">=3.12"
+
+dependencies = [
+    "litellm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyright==1.1.411",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov",
+    "coverage",
+    "black == 26.5.1",
+    "isort == 8.0.1",
+    "pylint == 4.0.6",
+]
+
+[project.scripts]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+]
+xfail_strict = true
+log_level = "INFO"
+
+[tool.coverage.run]
+omit = [
+  "tests/*",
+]
+source = ["patchbay_llm"]
+data_file = "coverage-report/.coverage"
+
+[tool.coverage.report]
+skip_covered = true
+sort = "cover"
+fail_under = 5
+precision = 2
+exclude_lines = [
+  "pragma: exclude coverage",
+  "pragma: no cover",
+]
+
+[tool.coverage.html]
+directory = 'coverage-report'
+
+[tool.coverage.xml]
+output = "coverage-report/coverage-report.xml"
+
+
+[tool.black]
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+exclude = [".venv/**", "**/__pycache__", "**./.*", "build/**", "check_test_refs.py"]
+
+[tool.pylint.messages_control]
+disable = [
+  "too-few-public-methods",
+  "too-many-arguments",
+  "too-many-positional-arguments",
+  "too-many-instance-attributes",
+  "too-many-locals",
+  "too-many-branches",
+  "too-many-statements",
+  "too-many-public-methods",
+  "too-many-lines",
+  "too-many-return-statements",
+  "too-many-nested-blocks",
+  "duplicate-code",
+  "fixme",
+]
+
+
