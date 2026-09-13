@@ -5,11 +5,7 @@ assembler that sees every Section's contribution at the same time.
 Breakpoint placement is inherently n-ary: a binary ``+`` cannot place a
 breakpoint, because it does not know whether more contributions are coming or
 how many breakpoints remain in the budget.
-
-See INFERENCE.md §2 "Decision: assembly is an n-ary construction".
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto

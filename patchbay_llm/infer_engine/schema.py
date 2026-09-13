@@ -1,11 +1,10 @@
 """JSON Schema normalisation.
 
-The supported JSON Schema subset is part of this API's contract (INFERENCE.md
-§3): a schema that works on one provider and not another breaks the
-one-file-swap claim.  ``normalise`` rewrites schemas into the portable subset
-and **rejects loudly** anything outside it -- never stripped, because a
-dropped ``pattern`` means the schema you validated against is not the schema
-the model was constrained to.
+The supported JSON Schema subset is part of this API's contract: a schema that
+works on one provider and not another breaks the one-file-swap claim.
+``normalise`` rewrites schemas into the portable subset and **rejects loudly**
+anything outside it -- never stripped, because a dropped ``pattern`` means the
+schema you validated against is not the schema the model was constrained to.
 
 Supported (after rewrite):
     - ``type`` of object/array/string/integer/number/boolean/null
@@ -23,8 +22,6 @@ Rejected: oneOf, allOf, not, patternProperties, additionalProperties as a
 schema, tuple-form items, minimum/maximum/minLength/maxLength/minItems/
 maxItems/pattern/format, const, default, and recursive $ref.
 """
-
-from __future__ import annotations
 
 from typing import Any, Mapping
 

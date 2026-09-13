@@ -1,16 +1,15 @@
 """Model facts, prices and token counts.
 
-``Catalogue`` is split from ``InferEngine`` (INFERENCE.md §6) because
-``cost_of(state)`` is a fold over usage events and must work with no engine in
-the process at all; ``render`` and ``compare`` run offline and need ``window``
-and ``measure``; and ``Catalogue`` has no network dependency.
+``Catalogue`` is split from ``InferEngine`` because ``cost_of(state)`` is a
+fold over usage events and must work with no engine in the process at all;
+``render`` and ``compare`` run offline and need ``window`` and ``measure``;
+and ``Catalogue`` has no network dependency.
 """
 
-from __future__ import annotations
-
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Mapping, Protocol
+from typing import Mapping
 
 from patchbay_llm.infer_engine.delta import Usage
 from patchbay_llm.infer_engine.prompt import Prompt
@@ -48,17 +47,17 @@ class Facts:
     rates: tuple[tuple[int, Rate], ...]
 
 
-class Catalogue(Protocol):
-    """A second, separate protocol -- no network, no inference."""
+class Catalogue(ABC):
+    """A second, separate interface -- no network, no inference."""
 
+    @abstractmethod
     def facts(self, model: str) -> Facts:
         """Return the reliable, load-bearing quantities for ``model``."""
-        ...  # pylint: disable=unnecessary-ellipsis
 
+    @abstractmethod
     def price(self, usage: Usage) -> Decimal:
         """Return the computed cost for a usage record."""
-        ...  # pylint: disable=unnecessary-ellipsis
 
+    @abstractmethod
     def measure(self, prompt: Prompt, model: str) -> int:
         """Return an approximate token count for ``prompt`` under ``model``."""
-        ...  # pylint: disable=unnecessary-ellipsis

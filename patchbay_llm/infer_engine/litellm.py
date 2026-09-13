@@ -1,10 +1,9 @@
 """The one engine that ships: :class:`LitellmInferEngine`.
 
-Every concept in the API maps to something verified in ``litellm_examples/``
-(INFERENCE.md §8).  This module is the entire specification of the mapping, and
-nothing provider-shaped escapes it.
+Every concept in the API maps to something real in litellm.  This module is the
+entire specification of that mapping, and nothing provider-shaped escapes it.
 
-Eight adapter obligations (§8) are honoured here:
+Eight adapter obligations are honoured here:
 
 1. Always set ``stream_options={"include_usage": True}``.
 2. Re-derive the input counts to be disjoint.
@@ -23,8 +22,8 @@ Eight adapter obligations (§8) are honoured here:
 # pyright: reportMissingParameterType=false, reportUnknownLambdaType=false
 # pyright: reportMissingTypeStubs=false
 # pyright: reportAttributeAccessIssue=false, reportCallIssue=false
+# pyright: reportPrivateImportUsage=false, reportArgumentType=false
 
-from __future__ import annotations
 
 import asyncio
 import base64
@@ -45,6 +44,7 @@ from patchbay_llm.infer_engine.delta import (
     ThoughtDelta,
     Usage,
 )
+from patchbay_llm.infer_engine.engine import InferEngine
 from patchbay_llm.infer_engine.errors import (
     InferenceError,
     Rejected,
@@ -159,16 +159,16 @@ class LitellmCatalogue(Catalogue):
 
     def measure(self, prompt: Prompt, model: str) -> int:
         full = self._full(model)
-        messages = _build_messages_for_count(prompt)
+        messages = _build_messages_for_call(prompt)
+        # token_counter raises a wide variety of errors for unknown models;
+        # an approximation is allowed to be 0 when counting is unavailable.
         try:
             return int(litellm.token_counter(model=full, messages=messages))
         except Exception:  # pylint: disable=broad-exception-caught
-            # token_counter raises a wide variety of errors for unknown models;
-            # an approximation is allowed to be 0 when counting is unavailable.
             return 0
 
 
-class LitellmInferEngine:
+class LitellmInferEngine(InferEngine):
     """The real engine.  Provider breadth, verified against ``litellm_examples/``.
 
     Construct with a mapping of short aliases to full litellm model ids::
@@ -391,11 +391,11 @@ def _stop_from_reason(reason: str | None) -> Stop:
     if reason is None:
         return Stop.END
     r = reason.lower()
-    if r in ("tool_calls", "function_call"):
+    if r in ("tool_calls", "function_call", "tool_use"):
         return Stop.TOOLS
-    if r == "length":
+    if r in ("length", "max_tokens"):
         return Stop.LENGTH
-    if r in ("content_filter", "content_filter"):
+    if r in ("content_filter",):
         return Stop.FILTER
     if r in ("stop_sequence",):
         return Stop.SEQUENCE
@@ -514,7 +514,7 @@ def _apply_think(
             return
 
     # Effort-style provider (OpenAI, Gemini via OpenAI-compatible route).
-    if provider not in ("anthropic",):
+    if provider != "anthropic":
         kwargs["reasoning_effort"] = _REASON_EFFORT[effort]
 
 
@@ -546,11 +546,6 @@ def _build_messages_for_call(prompt: Prompt) -> list[dict[str, Any]]:
         else:
             msgs.extend(_build_assistant(m))
     return _merge(msgs)
-
-
-def _build_messages_for_count(prompt: Prompt) -> list[dict[str, Any]]:
-    """A simplified shape for litellm.token_counter (which accepts OpenAI messages)."""
-    return _build_messages_for_call(prompt)
 
 
 def _build_user(msg: Message) -> list[dict[str, Any]]:
@@ -670,14 +665,22 @@ def _merge(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if out and out[-1].get("role") == role and role != "tool":
             prev = out[-1]
             prev_content = prev.get("content", "")
-            if isinstance(prev_content, str) and isinstance(content, str):
-                prev["content"] = (
-                    (prev_content + "\n" + content).strip() if prev_content else content
-                )
-            elif isinstance(prev_content, list) and isinstance(content, list):
-                prev["content"] = prev_content + content
-            else:
-                prev["content"] = content
+            prev_list = (
+                prev_content
+                if isinstance(prev_content, list)
+                else _to_content_list(prev_content)
+            )
+            cur_list = (
+                content if isinstance(content, list) else _to_content_list(content)
+            )
+            prev["content"] = prev_list + cur_list
         else:
             out.append(dict(msg))
     return out
+
+
+def _to_content_list(content: str) -> list[dict[str, Any]]:
+    """Normalise a string or list content into a list of content parts."""
+    if not content:
+        return []
+    return [{"type": "text", "text": content}]

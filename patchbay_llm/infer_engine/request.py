@@ -3,10 +3,9 @@
 A frozen struct, not keyword arguments -- it is what gets logged, validation
 has a home, and ``compare`` can vary one field via ``replace``.
 
-See INFERENCE.md §3.
+``tools`` and ``output`` are exclusive: combining them is unportable and
+non-deterministic in reply shape, so the constructor refuses it.
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto

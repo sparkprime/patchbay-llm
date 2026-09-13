@@ -6,10 +6,13 @@ and stays participant policy.  ``slot`` is the identity of one logical block of
 the reply -- one thinking block, one run of text, one tool call -- so that
 ``accumulate`` has a stable key to map onto one Event id.
 
-See INFERENCE.md §4.
-"""
+The stream promises exactly two ordering guarantees:
 
-from __future__ import annotations
+1. deltas sharing a ``slot`` arrive in order;
+2. ``Finish`` is the last item of a stream that ran to completion.
+
+It deliberately does *not* promise that blocks do not interleave.
+"""
 
 from dataclasses import dataclass
 from decimal import Decimal

@@ -7,8 +7,6 @@ over the public stream.  ``Reply`` keeps the **blocks**, in order, so that
 ``prompt.extend(reply.as_message(), results)`` with no translation step.
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Mapping

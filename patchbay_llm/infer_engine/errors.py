@@ -7,15 +7,13 @@ request be sent again?*
 - ``Rejected``: never.  ``TooLarge`` is a subclass because context overflow is a
   prompt-construction bug that should be loud rather than handled.
 
-There are exactly three ways a stream ends (§5): completed (a ``Finish`` item),
+There are exactly three ways a stream ends: completed (a ``Finish`` item),
 failed (an exception out of ``async for``), or abandoned (the consumer stops).
 A silent exhaustion with neither ``Finish`` nor exception is forbidden; the
 adapter raises ``Unreachable`` if the provider closes the connection without a
 terminal chunk, and synthesises an ``estimated`` ``Usage`` if it finishes
 properly but omits counts.
 """
-
-from __future__ import annotations
 
 
 class InferenceError(Exception):

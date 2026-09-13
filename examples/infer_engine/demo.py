@@ -11,33 +11,21 @@ tools, structured output, reasoning) but through the single InferEngine.run
 boundary -- no litellm or OpenAI field name appears in the call site.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os
 import sys
 from typing import Any
 
-from patchbay_llm.infer_engine import (
-    CacheHint,
-    Catalogue,
-    Contribution,
-    Effort,
-    InferEngine,
-    Knobs,
-    LitellmInferEngine,
-    Media,
-    Message,
-    Prompt,
-    Request,
-    Result,
-    Schema,
-    Tool,
-    assemble,
-    check,
-    collect,
-)
+from patchbay_llm.infer_engine.assemble import CacheHint, Contribution, assemble
+from patchbay_llm.infer_engine.catalogue import Catalogue
+from patchbay_llm.infer_engine.delta import Usage
+from patchbay_llm.infer_engine.engine import InferEngine
+from patchbay_llm.infer_engine.litellm import LitellmInferEngine
+from patchbay_llm.infer_engine.prompt import Media, Message, Prompt, Result
+from patchbay_llm.infer_engine.reply import collect
+from patchbay_llm.infer_engine.request import Effort, Knobs, Request, Schema, Tool
+from patchbay_llm.infer_engine.validation import check
 
 DEFAULT_MODELS: dict[str, str] = {
     "claude": "openrouter/anthropic/claude-haiku-4.5",
@@ -52,7 +40,7 @@ def hr(title: str = "") -> None:
     print(f"\n{line}\n{title}\n{line}" if title else line)
 
 
-def show_usage(usage: Any, label: str = "") -> None:
+def show_usage(usage: Usage, label: str = "") -> None:
     """Print a one-line summary of a Usage record."""
     prefix = f"[{label}] " if label else ""
     billed = f"{usage.billed}" if usage.billed is not None else "<none>"
