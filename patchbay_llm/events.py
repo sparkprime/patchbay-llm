@@ -16,8 +16,8 @@ shape-identical to their inference counterparts today; ``ToolCall`` diverges
 load-bearingly: ``args`` is raw JSON text (possibly a fragment while the
 event is partial) rather than a parsed mapping, which is what makes "partial
 arguments are never executed" true by construction.  The explicit, boring
-conversions live in ``infer_engine.convert`` -- the subdirectory can import
-from the directory above it, and the journal cannot.
+conversions live in ``participants.llm.convert`` -- a layer above both this
+module and ``infer_engine``, which import into it, not the other way round.
 """
 
 import uuid
@@ -81,7 +81,7 @@ class ToolCall:
     """A tool invocation a participant requested.
 
     ``args`` is raw JSON text, possibly a fragment while the event is partial.
-    It is **never** parsed here -- parsing happens in ``infer_engine.convert``
+    It is **never** parsed here -- parsing happens in ``participants.llm.convert``
     and only once the event is complete.  That is the type-level guarantee that
     partial arguments are never executed (DESIGN2 §3 "Partial events").
     """

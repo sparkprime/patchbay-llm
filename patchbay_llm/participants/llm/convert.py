@@ -1,7 +1,12 @@
 """The boring seam between journal content and inference parts.
 
-Lives here (inside ``infer_engine/``) rather than in ``events.py`` because the
-subdirectory can import from the directory above it, and the journal cannot.
+Lives here (inside ``participants/llm/``), not in ``events.py`` and not in
+``infer_engine/``. The journal cannot import forward, so it isn't here; and
+``infer_engine`` is deliberately oblivious to the journal -- it exposes a
+plain "do LLM stuff" interface (``Prompt`` in, ``Delta`` stream out) and knows
+nothing about ``Event``, ids, or journal vocabulary. Translating between the
+two is *participant* policy, same reasoning as ``accumulate`` in this package.
+
 ``events.py`` defines the journal's own ``Thought``/``ToolCall``/``ToolResult``
 and this module is the only place that knows how to translate between those
 and the inference ``Part`` union.  ``Media`` passes through unchanged --

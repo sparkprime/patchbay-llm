@@ -214,6 +214,8 @@ class LitellmInferEngine(InferEngine):
             )
         except asyncio.CancelledError:
             raise
+        except GeneratorExit:
+            raise
         except BaseException as exc:
             raise _map_error(exc) from exc
 
@@ -236,6 +238,8 @@ class LitellmInferEngine(InferEngine):
                     yield _finish(usage_obj, finish_reason, request.model, self.models)
                     return
         except asyncio.CancelledError:
+            raise
+        except GeneratorExit:
             raise
         except BaseException as exc:
             raise _map_error(exc) from exc
