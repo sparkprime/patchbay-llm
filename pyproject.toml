@@ -88,5 +88,8 @@ disable = [
   "duplicate-code",
   "fixme",
 ]
+enable = [
+  "useless-suppression",
+]
 
 
