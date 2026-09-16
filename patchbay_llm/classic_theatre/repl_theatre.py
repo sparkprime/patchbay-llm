@@ -31,16 +31,16 @@ events are wrapped in ``<thinking>`` / ``</thinking>`` as they stream.
 import asyncio
 from typing import Any, Callable, Coroutine, Union
 
-from patchbay_llm.conversation import (
+from patchbay_llm.classic_theatre.conversation import (
     Conversation,
     append_only,
     turn_at,
 )
+from patchbay_llm.classic_theatre.participants.human import HumanParticipant
+from patchbay_llm.classic_theatre.participants.llm.accumulate import PartialEvent
+from patchbay_llm.classic_theatre.participants.llm.participant import LlmParticipant
 from patchbay_llm.events import Event, Media
 from patchbay_llm.infer_engine.delta import TextDelta, ThoughtDelta
-from patchbay_llm.participants.human import HumanParticipant
-from patchbay_llm.participants.llm.accumulate import PartialEvent
-from patchbay_llm.participants.llm.participant import LlmParticipant
 
 __all__ = ["run_repl", "default_broadcast", "Broadcast", "Item"]
 
@@ -126,7 +126,7 @@ async def run_repl(
     broadcast: Broadcast = default_broadcast,
 ) -> None:
     """Run a two-party REPL conversation to EOF or ``exit``/``quit``."""
-    participants = (human.me, llm.me)
+    participant_names = (human.name, llm.me)
     state: Conversation = ()
     emit = broadcast()
     while True:
@@ -141,7 +141,7 @@ async def run_repl(
                 state = append_only(state, event)
         if not got_message:
             return
-        while turn_at(state, participants) == llm.me:
+        while turn_at(state, participant_names) == llm.me:
             live: set[asyncio.Task[None]] = set()
             async for item in llm.act(state):
                 if isinstance(item, PartialEvent):

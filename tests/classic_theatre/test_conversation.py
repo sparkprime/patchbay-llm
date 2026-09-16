@@ -2,7 +2,7 @@
 
 from time import time
 
-from patchbay_llm.conversation import (
+from patchbay_llm.classic_theatre.conversation import (
     Conversation,
     append_only,
     message,

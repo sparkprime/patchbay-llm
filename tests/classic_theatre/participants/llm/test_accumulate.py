@@ -12,6 +12,13 @@ from typing import AsyncIterator
 
 import pytest
 
+from patchbay_llm.classic_theatre.participants.llm.accumulate import (
+    FileDeltaLog,
+    PartialEvent,
+    accumulate,
+    recover_events,
+    reify_block,
+)
 from patchbay_llm.events import Event, EventId, Media, Thought, ToolCall
 from patchbay_llm.infer_engine.delta import (
     CallDelta,
@@ -21,13 +28,6 @@ from patchbay_llm.infer_engine.delta import (
     TextDelta,
     ThoughtDelta,
     Usage,
-)
-from patchbay_llm.participants.llm.accumulate import (
-    FileDeltaLog,
-    PartialEvent,
-    accumulate,
-    recover_events,
-    reify_block,
 )
 
 

@@ -14,11 +14,14 @@ import asyncio
 import os
 import sys
 
+from patchbay_llm.classic_theatre.participants.human import (
+    HumanParticipant,
+    terminal_source,
+)
+from patchbay_llm.classic_theatre.participants.llm.participant import LlmParticipant
+from patchbay_llm.classic_theatre.repl_theatre import run_repl
 from patchbay_llm.infer_engine.litellm import LitellmInferEngine
 from patchbay_llm.infer_engine.request import Effort, Knobs
-from patchbay_llm.participants.human import HumanParticipant, terminal_source
-from patchbay_llm.participants.llm.participant import LlmParticipant
-from patchbay_llm.repl_theatre import run_repl
 
 DEFAULT_MODELS: dict[str, str] = {
     "claude": "openrouter/anthropic/claude-haiku-4.5",

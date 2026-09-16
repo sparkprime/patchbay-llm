@@ -2,10 +2,10 @@
 
 from time import time
 
-from patchbay_llm.conversation import message
+from patchbay_llm.classic_theatre.conversation import message
+from patchbay_llm.classic_theatre.participants.llm.render import render
 from patchbay_llm.events import Event, Media, Thought, ToolCall, new_id
 from patchbay_llm.infer_engine.prompt import Call, Prompt
-from patchbay_llm.participants.llm.render import render
 
 
 def _thought(author: str, text: str, signature: str | None = None) -> Event:

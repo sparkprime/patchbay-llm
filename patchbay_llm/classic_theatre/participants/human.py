@@ -15,7 +15,7 @@ wind down cleanly.
 import asyncio
 from typing import AsyncIterator, Awaitable, Callable
 
-from patchbay_llm.conversation import Conversation, message, turn_end
+from patchbay_llm.classic_theatre.conversation import Conversation, message, turn_end
 from patchbay_llm.events import Event
 
 __all__ = ["HumanParticipant", "terminal_source", "Source"]
@@ -26,8 +26,8 @@ Source = Callable[[], Awaitable[str | None]]
 class HumanParticipant:
     """One message per step; constructor-injected with a ``source`` callable."""
 
-    def __init__(self, me: str, source: Source) -> None:
-        self.me = me
+    def __init__(self, name: str, source: Source) -> None:
+        self.name = name
         self.source = source
 
     async def act(self, state: Conversation) -> AsyncIterator[Event]:
@@ -36,11 +36,11 @@ class HumanParticipant:
         while True:
             text = await self.source()
             if text is None:
-                yield turn_end(self.me, "relinquished")
+                yield turn_end(self.name, "relinquished")
                 return
             if text.strip():
-                yield message(self.me, text)
-                yield turn_end(self.me, "relinquished")
+                yield message(self.name, text)
+                yield turn_end(self.name, "relinquished")
                 return
 
 

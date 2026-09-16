@@ -18,16 +18,16 @@ one batch of tool executions").  ``LlmParticipant(tools={})`` will be the
 
 from typing import AsyncIterator, Union
 
-from patchbay_llm.conversation import Conversation, turn_end
-from patchbay_llm.events import Event
-from patchbay_llm.infer_engine.engine import InferEngine
-from patchbay_llm.infer_engine.request import Knobs, Request
-from patchbay_llm.participants.llm.accumulate import (
+from patchbay_llm.classic_theatre.conversation import Conversation, turn_end
+from patchbay_llm.classic_theatre.participants.llm.accumulate import (
     DurabilitySink,
     PartialEvent,
     accumulate,
 )
-from patchbay_llm.participants.llm.render import render
+from patchbay_llm.classic_theatre.participants.llm.render import render
+from patchbay_llm.events import Event
+from patchbay_llm.infer_engine.engine import InferEngine
+from patchbay_llm.infer_engine.request import Knobs, Request
 
 __all__ = ["LlmParticipant"]
 
@@ -39,13 +39,13 @@ class LlmParticipant:
 
     def __init__(
         self,
-        me: str,
+        name: str,
         engine: InferEngine,
         model: str,
         knobs: Knobs = Knobs(),
         sink: DurabilitySink | None = None,
     ) -> None:
-        self.me = me
+        self.me = name
         self.engine = engine
         self.model = model
         self.knobs = knobs

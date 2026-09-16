@@ -16,20 +16,20 @@ Messages``").
 
 from typing import Sequence
 
+from patchbay_llm.classic_theatre.participants.llm.convert import to_part
 from patchbay_llm.events import Event
 from patchbay_llm.infer_engine.prompt import Message, Prompt, Role
-from patchbay_llm.participants.llm.convert import to_part
 
 __all__ = ["render"]
 
 _CONTENT_KINDS = ("message", "thought", "tool_call", "tool_result")
 
 
-def _role(author: str, me: str) -> Role:
-    return "llm" if author == me else "user"
+def _role(author: str, name: str) -> Role:
+    return "llm" if author == name else "user"
 
 
-def render(state: Sequence[Event], me: str, budget: int | None = None) -> Prompt:
+def render(state: Sequence[Event], name: str, budget: int | None = None) -> Prompt:
     """Fold ``state`` into a ``Prompt`` for the participant identified by ``me``."""
     del budget  # unused -- signature slot for a future Section-based assembler.
     messages: list[Message] = []
@@ -37,7 +37,7 @@ def render(state: Sequence[Event], me: str, budget: int | None = None) -> Prompt
         if not e.complete or e.kind not in _CONTENT_KINDS:
             continue
         author = e.meta.get("author", "")
-        role = _role(author, me)
+        role = _role(author, name)
         parts = tuple(to_part(b) for b in e.content)
         if messages and messages[-1].role == role:
             prev = messages[-1]

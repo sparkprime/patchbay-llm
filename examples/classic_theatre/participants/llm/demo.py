@@ -34,14 +34,17 @@ import os
 import sys
 from typing import AsyncIterator
 
+from patchbay_llm.classic_theatre.participants.llm.accumulate import (
+    PartialEvent,
+    accumulate,
+)
+from patchbay_llm.classic_theatre.participants.llm.convert import to_part
 from patchbay_llm.events import Event, Media
 from patchbay_llm.infer_engine.delta import Delta
 from patchbay_llm.infer_engine.litellm import LitellmInferEngine
 from patchbay_llm.infer_engine.prompt import Message, Part, Prompt
 from patchbay_llm.infer_engine.reply import collect
 from patchbay_llm.infer_engine.request import Knobs, Request, Tool
-from patchbay_llm.participants.llm.accumulate import PartialEvent, accumulate
-from patchbay_llm.participants.llm.convert import to_part
 
 DEFAULT_MODELS: dict[str, str] = {
     "claude": "openrouter/anthropic/claude-haiku-4.5",
