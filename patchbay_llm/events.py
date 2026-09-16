@@ -1,8 +1,17 @@
 """The event.
 
 Event is the one container everything else in the project is built from.
-Partial or complete, merged by id.  See DESIGN2 §3 ("One container",
-"Partial events, merged by id").
+Exactly one Event is ever produced for an id, at reify time, and
+``complete`` is decided once as a fact about how that single object came to
+exist (Finish reached, vs. cut short by cancel or crash-recovery).  See
+DESIGN2 §3 ("One container") and ``durable_partials.md`` ("What
+``Event.complete`` means now").
+
+The in-flight phase -- between a producer's first delta for an id and the
+moment that id's stream ends -- is a separate type, ``PartialEvent``, which
+lives in ``participants.llm.accumulate``.  ``Event`` is never "live"; it is
+always the final, reified record.  There is no merge step and no sequence of
+cumulative partials sharing an id.
 
 This module is the substrate: it imports nothing from ``infer_engine``.
 ``Media`` is defined *here*, and ``infer_engine.prompt`` imports it upward,
@@ -14,10 +23,11 @@ layering... the element vocabulary of the journal").
 reused from ``infer_engine``.  ``Thought`` and ``ToolResult`` are
 shape-identical to their inference counterparts today; ``ToolCall`` diverges
 load-bearingly: ``args`` is raw JSON text (possibly a fragment while the
-event is partial) rather than a parsed mapping, which is what makes "partial
-arguments are never executed" true by construction.  The explicit, boring
-conversions live in ``participants.llm.convert`` -- a layer above both this
-module and ``infer_engine``, which import into it, not the other way round.
+event was interrupted) rather than a parsed mapping, which is what makes
+"partial arguments are never executed" true by construction.  The explicit,
+boring conversions live in ``participants.llm.convert`` -- a layer above
+both this module and ``infer_engine``, which import into it, not the other
+way round.
 """
 
 import uuid
@@ -33,7 +43,6 @@ __all__ = [
     "ToolResult",
     "ContentBlock",
     "Event",
-    "merge",
 ]
 
 EventId = NewType("EventId", str)
@@ -80,10 +89,11 @@ class Thought:
 class ToolCall:
     """A tool invocation a participant requested.
 
-    ``args`` is raw JSON text, possibly a fragment while the event is partial.
-    It is **never** parsed here -- parsing happens in ``participants.llm.convert``
-    and only once the event is complete.  That is the type-level guarantee that
-    partial arguments are never executed (DESIGN2 §3 "Partial events").
+    ``args`` is raw JSON text, possibly a fragment if the event was
+    interrupted.  It is **never** parsed here -- parsing happens in
+    ``participants.llm.convert`` and only once the event is complete.  That
+    is the type-level guarantee that partial arguments are never executed
+    (DESIGN2 §3 "Partial events", durable_partials.md "Recovery" §4).
     """
 
     id: str
@@ -105,12 +115,15 @@ ContentBlock = Union[Media, Thought, ToolCall, ToolResult]
 
 @dataclass(frozen=True)
 class Event:
-    """The one container.  Partial or complete, merged by id.
+    """The one container — a first-hand, ground-truth fact, produced once per id.
 
-    ``content`` is cumulative, not incremental: each partial is a complete,
-    valid replacement for the one before it, not a delta to be applied.
-    ``complete=False`` means the event was interrupted; nothing sets it,
-    nothing forgets it.
+    Exactly one ``Event`` is ever produced for an id, at reify time (see
+    ``PartialEvent.reify()`` in ``participants.llm.accumulate``).  ``content``
+    is the joined-so-far content at the moment of reification — cumulative,
+    not incremental.  ``complete=False`` means the event was interrupted
+    (cancelled or crash-recovered); it was never a flag anyone set or forgot,
+    and there is no sequence of partial Events sharing an id to merge through
+    (durable_partials.md: "What ``Event.complete`` means now").
 
     ``kind`` is an open namespace (DESIGN2 §3): consumers must ignore kinds
     they do not recognise.  Known kinds: ``message``, ``thought``,
@@ -124,21 +137,3 @@ class Event:
     content: tuple[ContentBlock, ...] = ()
     meta: Mapping[str, Any] = field(default_factory=dict[str, Any])
     complete: bool = True
-
-
-def merge(previous: Event, update: Event) -> Event:
-    """Combine two partials sharing an id.
-
-    Content is cumulative, so this is last-wins by construction -- ``update``
-    already carries everything ``previous`` did, plus more.  What earns this
-    a real function rather than a bare dict assignment is the invariant it
-    checks: a participant must not keep yielding for an id it already marked
-    complete, and two events sharing an id must share a kind.
-    """
-    if previous.id != update.id:
-        raise ValueError(f"cannot merge Event {update.id!r} into {previous.id!r}")
-    if previous.kind != update.kind:
-        raise ValueError(f"Event {previous.id!r} changed kind mid-stream")
-    if previous.complete:
-        raise ValueError(f"Event {previous.id!r} is already complete")
-    return update

@@ -8,11 +8,12 @@ Run::
 
 Two things this proves against a live provider:
 
-1. ``accumulate`` turns a real streaming response into journal ``Event``s --
-   growing partials, then complete events, then a usage event -- and the
-   shapes match what the provider actually sends (slot assignment, fragment
-   boundaries, etc.).  Unit tests cover this with synthetic ``Delta`` sequences;
-   this is the first time the code sees a real stream.
+1. ``accumulate`` turns a real streaming response into ``Event | PartialEvent``
+   items -- one ``PartialEvent`` handle per new slot (cheap to subscribe to,
+   cheap to ignore), then final ``Event`` s on ``Finish``, then a ``usage``
+   event.  The shapes match what the provider actually sends (slot assignment,
+   fragment boundaries, etc.).  Unit tests cover this with synthetic ``Delta``
+   sequences; this is the first time the code sees a real stream.
 
 2. The journal round-trip is equivalent to the direct path.  The same recorded
    delta sequence is fed through both::
@@ -39,7 +40,7 @@ from patchbay_llm.infer_engine.litellm import LitellmInferEngine
 from patchbay_llm.infer_engine.prompt import Message, Part, Prompt
 from patchbay_llm.infer_engine.reply import collect
 from patchbay_llm.infer_engine.request import Knobs, Request, Tool
-from patchbay_llm.participants.llm.accumulate import accumulate
+from patchbay_llm.participants.llm.accumulate import PartialEvent, accumulate
 from patchbay_llm.participants.llm.convert import to_part
 
 DEFAULT_MODELS: dict[str, str] = {
@@ -84,35 +85,40 @@ def _content_preview(event: Event) -> str:
 
 
 async def accumulate_loop(engine: LitellmInferEngine) -> None:
-    """See journal Events form live from a real provider stream."""
-    hr("accumulate: live provider stream -> journal Events")
+    """See PartialEvents and final Events form live from a real provider stream."""
+    hr("accumulate: live provider stream -> PartialEvent / Event")
     req = Request(
         model="claude",
         prompt=simple_prompt("Count from 1 to 5, one number per line."),
         knobs=Knobs(max_output=64),
     )
     n = 0
-    async for event in accumulate(engine.run(req), "llm:main"):
+    async for item in accumulate(engine.run(req), "llm:main"):
         n += 1
-        flag = "C" if event.complete else "."
-        preview = _content_preview(event)
-        print(
-            f"  event {n:3d} [{flag}] kind={event.kind:10s} id={event.id[:8]} {preview}"
-        )
-    print(f"({n} events total)")
+        if isinstance(item, PartialEvent):
+            print(f"  item {n:3d} [P] kind={item.kind:10s} id={item.id[:8]}")
+        else:
+            flag = "C" if item.complete else "."
+            preview = _content_preview(item)
+            print(
+                f"  item {n:3d} [{flag}] kind={item.kind:10s} id={item.id[:8]} {preview}"
+            )
+    print(f"({n} items total)")
 
 
-def _events_to_llm_message(events: list[Event]) -> Message:
-    """Build the llm Message from accumulated events (the journal path).
+def _events_to_llm_message(items: list[Event | PartialEvent]) -> Message:
+    """Build the llm Message from accumulated items (the journal path).
 
-    Skips partials (``complete=False``) and the terminal ``usage`` event,
-    keeping only the final, complete content events -- one per slot.
+    Skips PartialEvent handles and the terminal ``usage`` event, keeping only
+    the final, complete content events -- one per slot.
     """
     parts: list[Part] = []
-    for e in events:
-        if e.kind == "usage" or not e.complete:
+    for item in items:
+        if isinstance(item, PartialEvent):
             continue
-        for block in e.content:
+        if item.kind == "usage" or not item.complete:
+            continue
+        for block in item.content:
             parts.append(to_part(block))
     return Message("llm", tuple(parts))
 
@@ -151,9 +157,11 @@ async def journal_round_trip_equivalence(engine: LitellmInferEngine) -> None:
     )
 
     # Path B: the journal round-trip path.
-    events = [e async for e in accumulate(_replay(deltas), "llm:main")]
-    journal_msg = _events_to_llm_message(events)
-    complete = [e for e in events if e.complete and e.kind != "usage"]
+    items = [e async for e in accumulate(_replay(deltas), "llm:main")]
+    journal_msg = _events_to_llm_message(items)
+    complete = [
+        i for i in items if isinstance(i, Event) and i.complete and i.kind != "usage"
+    ]
     print(
         f"  accumulate()    -> {len(complete)} complete content events, "
         f"{len(journal_msg.parts)} parts"
