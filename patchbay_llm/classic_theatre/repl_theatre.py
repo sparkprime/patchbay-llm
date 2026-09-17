@@ -10,10 +10,10 @@ one in §5.2:
         state = integrate(state, message(HUMAN, text))
         state = integrate(state, turn_end(HUMAN))
         while turn_at(state) == ASSISTANT:
-            stream = accumulate(engine.run(Request(model, prompt, knobs)), sink)
+            stream = accumulate(engine.run(Request(model, prompt, knobs)))
             async for item in stream:
                 if isinstance(item, LiveUpdate):
-                    print live text                # synchronous, same loop
+                    sink(live text)               # synchronous, same loop
                 else:
                     state = integrate(state, item)
 
@@ -21,6 +21,14 @@ Both sides are inlined directly into the loop: the human turn is a single
 blocking read (no inference, no state consultation), and the assistant turn is
 a single inference call (render state -> request -> accumulate deltas -> yield
 events).  Neither needed the indirection of a participant class.
+
+``run_repl`` owns the rendering bookkeeping — thinking-tag wrapping, trailing
+newlines on completed messages, and de-duplication of text already streamed via
+:class:`LiveUpdate` against the final :class:`Event` — so that callers provide
+only raw I/O: a ``source`` that returns one line at a time (line-oriented,
+blocking) and a ``sink`` that prints a text chunk (arbitrary fragment, not
+necessarily a whole line).  The example in ``examples/`` is a few lines of
+``input()`` / ``print()`` and nothing else.
 
 ``accumulate`` yields :class:`LiveUpdate` per delta (live increments, processed
 synchronously via pattern match on the variant) and :class:`Event` per slot on
@@ -36,15 +44,8 @@ The Delta → :class:`LiveUpdate` translation lives in
 ``infer_engine.convert`` and the :class:`LiveUpdate` → :class:`ContentBlock`
 join in ``patchbay_llm.reify``; ``accumulate`` is the one place that orchestrates
 both into :class:`Event` s.
-
-``default_broadcast`` prints the actual increment per delta — no diffing
-against a previous cumulative snapshot.  A completed LLM message gets a
-trailing newline.  Thought events are wrapped in ``<thinking>`` /
-``</thinking>`` as they stream.  ``exit``, ``quit`` and EOF end the loop
-cleanly.
 """
 
-import asyncio
 from dataclasses import dataclass
 from time import time
 from typing import (
@@ -52,9 +53,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
-    Coroutine,
     Sequence,
-    Union,
 )
 
 from patchbay_llm.classic_theatre.conversation import (
@@ -66,7 +65,7 @@ from patchbay_llm.classic_theatre.conversation import (
     turn_at,
     turn_end,
 )
-from patchbay_llm.events import Event, EventId, Media, new_id
+from patchbay_llm.events import Event, EventId, new_id
 from patchbay_llm.infer_engine.convert import to_live_update, to_part
 from patchbay_llm.infer_engine.delta import (
     Delta,
@@ -82,29 +81,15 @@ from patchbay_llm.reify import reify_block
 
 __all__ = [
     "run_repl",
-    "default_broadcast",
     "render",
     "accumulate",
-    "Broadcast",
-    "Item",
     "Source",
-    "terminal_source",
+    "Sink",
 ]
-
-Item = Union[Event, LiveUpdate]
 
 Source = Callable[[], Awaitable[str | None]]
 
-BroadcastFn = Callable[[Item], Coroutine[None, None, None]]
-Broadcast = Callable[[], BroadcastFn]
-
-
-async def append_and_emit(
-    state: Conversation, emit: BroadcastFn, event: Event
-) -> Conversation:
-    """Emit an event and integrate it into state, in one line."""
-    await emit(event)
-    return append_only(state, event)
+Sink = Callable[[str], None]
 
 
 # ── render: the state -> Prompt fold ────────────────────────────────────────
@@ -245,117 +230,70 @@ async def accumulate(
     raise RuntimeError("delta stream ended without a Finish")
 
 
-def default_broadcast() -> BroadcastFn:
-    """Print live text as it arrives, and final messages with newlines.
-
-    Each :class:`LiveUpdate` is the actual increment — no diffing, no cumulative
-    snapshot.  Human messages (which arrive as complete Events) are printed in
-    full.  A completed LLM message gets a trailing newline.  Thought events are
-    wrapped in ``<thinking>`` / ``</thinking>`` as they stream.  Tool-call
-    increments are not rendered live in the terminal today (the model's
-    argument stream is not useful to watch character-by-character; the
-    final ``tool_call`` Event is what the user sees).
-    """
-
-    seen_ids: set[str] = set()
-    thinking_open = False
-
-    def _close_thinking() -> None:
-        nonlocal thinking_open
-        if thinking_open:
-            print("</thinking>")
-            thinking_open = False
-
-    async def _emit(item: Item) -> None:
-        nonlocal thinking_open
-        match item:
-            case MessageChunk(id=uid, text=t) if t:
-                seen_ids.add(uid)
-                _close_thinking()
-                print(t, end="", flush=True)
-            case ThoughtChunk(id=uid, text=t) if t:
-                seen_ids.add(uid)
-                if not thinking_open:
-                    print("<thinking>", end="", flush=True)
-                    thinking_open = True
-                print(t, end="", flush=True)
-            case Event():
-                event = item
-                if event.id in seen_ids:
-                    # Text already printed via deltas; just finalize.
-                    if event.kind == "thought":
-                        _close_thinking()
-                    if event.kind == "message" and event.complete:
-                        _close_thinking()
-                        print()
-                else:
-                    # Not from a LiveUpdate (human message, turn_end, usage).
-                    if event.kind == "message":
-                        block = event.content[0] if event.content else None
-                        if isinstance(block, Media) and block.mime == "text/plain":
-                            _close_thinking()
-                            print(block.data.decode("utf-8", errors="replace"))
-
-    return _emit
-
-
-def terminal_source(prompt: str = "> ") -> Source:
-    """A ``source`` backed by blocking ``input()``, wrapped in an executor.
-
-    Blocking ``input()`` would freeze the event loop, so it runs in the
-    default executor's thread pool and is awaited.  ``EOFError`` (Ctrl-D)
-    becomes ``None`` -- the end-of-input signal the theatre reads to exit.
-    """
-
-    async def _read() -> str | None:
-        loop = asyncio.get_running_loop()
-        try:
-            return await loop.run_in_executor(None, lambda: input(prompt))
-        except EOFError:
-            return None
-
-    return _read
-
-
-terminal_sink = default_broadcast()
-
-
 async def run_repl(
     source: Source,
-    sink: BroadcastFn,
+    sink: Sink,
     engine: InferEngine,
     model: str,
     knobs: Knobs = Knobs(),
 ) -> None:
     """Run a two-party REPL conversation to EOF or ``exit``/``quit``.
 
-    The human turn is a single blocking read from ``source``.  The assistant
-    turn is a single inference call.  Both are inlined — no participant
-    classes.  ``source`` returns ``str | None``; ``None`` (EOF) and the
-    commands ``exit``/``quit`` end the loop cleanly.  Empty input is re-read
-    until a non-empty line arrives.
+    ``source`` is an awaitable that returns one line of text, or ``None`` at
+    EOF.  ``sink`` is a plain ``print``-like callable that receives each text
+    chunk as it streams — never a whole journal item, just ``str``.
+
+    The theatre owns the rendering bookkeeping so that callers need only raw
+    I/O: thinking events are wrapped in ``<thinking>`` / ``</thinking>`` as they
+    stream, a completed LLM message gets a trailing newline, and text already
+    printed via :class:`LiveUpdate` deltas is not re-printed when the final
+    :class:`Event` arrives.  Tool-call increments are not rendered live (the
+    model's argument stream is not useful to watch character-by-character; the
+    final ``tool_call`` Event is what the user sees).  ``exit``, ``quit`` and
+    EOF end the loop cleanly.  Empty input is re-read until a non-empty line
+    arrives.
     """
     state: Conversation = ()
+    seen_ids: set[str] = set()
+    thinking_open = False
+
     while True:
-        # ── Human turn ─────────────────────────────────────────────────────
+        # ── Human turn ─────────────────────────────────────────────────
         while True:
             text = await source()
             if text is None or text.strip() in ("exit", "quit"):
                 return
             if not text.strip():
                 continue
-            msg = message(HUMAN, text)
-            state = await append_and_emit(state, sink, msg)
-            state = await append_and_emit(state, sink, turn_end(HUMAN, "relinquished"))
+            state = append_only(state, message(HUMAN, text))
+            state = append_only(state, turn_end(HUMAN, "relinquished"))
             break
 
-        # ── Assistant turn ─────────────────────────────────────────────────
+        # ── Assistant turn ─────────────────────────────────────────────
         while turn_at(state) == ASSISTANT:
             request = Request(model=model, prompt=render(state), knobs=knobs)
             async for item in accumulate(engine.run(request)):
-                await sink(item)
-                if isinstance(item, Event) and item.complete:
+                if isinstance(item, Event):
+                    if item.id in seen_ids:
+                        if item.kind == "thought" and thinking_open:
+                            sink("</thinking>")
+                            thinking_open = False
+                        elif item.kind == "message" and item.complete:
+                            if thinking_open:
+                                sink("</thinking>")
+                                thinking_open = False
+                            sink("\n")
                     state = append_only(state, item)
-            state = await append_and_emit(
-                state, sink, turn_end(ASSISTANT, "relinquished")
-            )
+                elif isinstance(item, (MessageChunk, ThoughtChunk)):
+                    if not item.text:
+                        continue
+                    seen_ids.add(item.id)
+                    if isinstance(item, ThoughtChunk):
+                        if not thinking_open:
+                            sink("<thinking>")
+                            thinking_open = True
+                    elif thinking_open:
+                        sink("</thinking>")
+                        thinking_open = False
+                    sink(item.text)
+            state = append_only(state, turn_end(ASSISTANT, "relinquished"))

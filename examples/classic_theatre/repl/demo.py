@@ -14,11 +14,7 @@ import asyncio
 import os
 import sys
 
-from patchbay_llm.classic_theatre.repl_theatre import (
-    run_repl,
-    terminal_sink,
-    terminal_source,
-)
+from patchbay_llm.classic_theatre.repl_theatre import run_repl
 from patchbay_llm.infer_engine.litellm import LitellmInferEngine
 from patchbay_llm.infer_engine.request import Effort, Knobs
 
@@ -32,9 +28,21 @@ async def main() -> None:
     if not os.environ.get("OPENROUTER_API_KEY"):
         sys.exit("OPENROUTER_API_KEY is not set.")
     engine = LitellmInferEngine(models=DEFAULT_MODELS)
+
+    loop = asyncio.get_running_loop()
+
+    async def source() -> str | None:
+        try:
+            return await loop.run_in_executor(None, lambda: input("> "))
+        except EOFError:
+            return None
+
+    def sink(text: str) -> None:
+        print(text, end="", flush=True)
+
     await run_repl(
-        terminal_source(),
-        terminal_sink,
+        source,
+        sink,
         engine,
         "claude",
         Knobs(think=Effort.MEDIUM, max_output=8192),

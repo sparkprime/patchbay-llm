@@ -28,7 +28,7 @@ the one producer of :class:`LiveUpdate`.
 Two consumers are anticipated, both of which pattern-match on the same
 variants and know nothing of each other:
 
-- a REPL/CLI printer (``repl_theatre.default_broadcast``) -- extracts ``text``
+- a REPL/CLI printer (``repl_theatre.run_repl``) -- extracts ``text``
   from :class:`MessageChunk` / :class:`ThoughtChunk` and ignores the rest;
 - an ACP live-forwarder (not yet built) -- maps the same variants onto ACP's
   ``agent_message_chunk`` / ``agent_thought_chunk`` / ``tool_call_update``
