@@ -14,12 +14,11 @@ import asyncio
 import os
 import sys
 
-from patchbay_llm.classic_theatre.participants.human import (
-    HumanParticipant,
+from patchbay_llm.classic_theatre.repl_theatre import (
+    run_repl,
+    terminal_sink,
     terminal_source,
 )
-from patchbay_llm.classic_theatre.participants.llm.participant import LlmParticipant
-from patchbay_llm.classic_theatre.repl_theatre import run_repl
 from patchbay_llm.infer_engine.litellm import LitellmInferEngine
 from patchbay_llm.infer_engine.request import Effort, Knobs
 
@@ -29,15 +28,17 @@ DEFAULT_MODELS: dict[str, str] = {
 
 
 async def main() -> None:
-    """Wire the engine, participants and theatre; run until EOF or exit."""
+    """Wire the engine and theatre; run until EOF or exit."""
     if not os.environ.get("OPENROUTER_API_KEY"):
         sys.exit("OPENROUTER_API_KEY is not set.")
     engine = LitellmInferEngine(models=DEFAULT_MODELS)
-    human = HumanParticipant("human:you", terminal_source())
-    llm = LlmParticipant(
-        "llm:main", engine, "claude", Knobs(think=Effort.MEDIUM, max_output=8192)
+    await run_repl(
+        terminal_source(),
+        terminal_sink,
+        engine,
+        "claude",
+        Knobs(think=Effort.MEDIUM, max_output=8192),
     )
-    await run_repl(human, llm)
 
 
 if __name__ == "__main__":

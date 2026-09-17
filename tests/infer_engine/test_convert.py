@@ -1,12 +1,12 @@
-"""Contract tests for ``participants.llm.convert`` (the journal <-> inference seam)."""
+"""Contract tests for ``infer_engine.convert`` (the journal <-> inference seam)."""
 
 import pytest
 
-from patchbay_llm.classic_theatre.participants.llm.convert import from_part, to_part
 from patchbay_llm.events import Media as JournalMedia
 from patchbay_llm.events import Thought as JournalThought
 from patchbay_llm.events import ToolCall as JournalToolCall
 from patchbay_llm.events import ToolResult as JournalToolResult
+from patchbay_llm.infer_engine.convert import from_part, to_part
 from patchbay_llm.infer_engine.prompt import Breakpoint, Call, Result
 from patchbay_llm.infer_engine.prompt import Thought as InferThought
 

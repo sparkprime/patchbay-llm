@@ -7,11 +7,14 @@ exist (Finish reached, vs. cut short by cancel or crash-recovery).  See
 DESIGN2 §3 ("One container") and ``durable_partials.md`` ("What
 ``Event.complete`` means now").
 
-The in-flight phase -- between a producer's first delta for an id and the
-moment that id's stream ends -- is a separate type, ``PartialEvent``, which
-lives in ``participants.llm.accumulate``.  ``Event`` is never "live"; it is
-always the final, reified record.  There is no merge step and no sequence of
-cumulative partials sharing an id.
+Event is the *ground-truth* type: a first-hand, durable record, produced
+exactly once per id.  It is not the in-flight type.  The in-flight phase --
+between a producer's first delta for an id and the moment that id's stream
+ends -- is represented by the separate :class:`~patchbay_llm.live.LiveUpdate`
+vocabulary (see ``patchbay_llm.live``), which exists for one purpose:
+fine-grained rendering updates to a UI, decoupled from this module and from
+``infer_engine``.  A :class:`LiveUpdate` correlates with its eventual
+:class:`Event` by id value only, not by shape.
 
 This module is the substrate: it imports nothing from ``infer_engine``.
 ``Media`` is defined *here*, and ``infer_engine.prompt`` imports it upward,
@@ -25,9 +28,14 @@ shape-identical to their inference counterparts today; ``ToolCall`` diverges
 load-bearingly: ``args`` is raw JSON text (possibly a fragment while the
 event was interrupted) rather than a parsed mapping, which is what makes
 "partial arguments are never executed" true by construction.  The explicit,
-boring conversions live in ``participants.llm.convert`` -- a layer above
-both this module and ``infer_engine``, which import into it, not the other
-way round.
+boring conversions live in ``infer_engine.convert`` -- which imports from both
+this module and ``infer_engine.prompt``, not the other way round.
+
+The bridge between ``infer_engine.delta.Delta`` (the provider stream) and
+``Event`` (the durable record) is ``accumulate`` (in
+``classic_theatre.participants.llm.accumulate``): it assigns ids, converts each
+``Delta`` to a :class:`LiveUpdate` for any live consumer, and joins the
+per-slot increments into the one final :class:`Event` per slot on ``Finish``.
 """
 
 import uuid
@@ -91,7 +99,7 @@ class ToolCall:
 
     ``args`` is raw JSON text, possibly a fragment if the event was
     interrupted.  It is **never** parsed here -- parsing happens in
-    ``participants.llm.convert`` and only once the event is complete.  That
+    ``infer_engine.convert`` and only once the event is complete.  That
     is the type-level guarantee that partial arguments are never executed
     (DESIGN2 §3 "Partial events", durable_partials.md "Recovery" §4).
     """
@@ -115,18 +123,22 @@ ContentBlock = Union[Media, Thought, ToolCall, ToolResult]
 
 @dataclass(frozen=True)
 class Event:
-    """The one container — a first-hand, ground-truth fact, produced once per id.
+    """A fundamental piece of knowledge / information.
 
-    Exactly one ``Event`` is ever produced for an id, at reify time (see
-    ``PartialEvent.reify()`` in ``participants.llm.accumulate``).  ``content``
-    is the joined-so-far content at the moment of reification — cumulative,
-    not incremental.  ``complete=False`` means the event was interrupted
-    (cancelled or crash-recovered); it was never a flag anyone set or forgot,
-    and there is no sequence of partial Events sharing an id to merge through
-    (durable_partials.md: "What ``Event.complete`` means now").
+    LLMs are trained to respond in the context of a conversation expressed as a sequence
+    of events. We don't have to take this representation literally. But we do have to
+    express what we want within those concepts.
 
-    ``kind`` is an open namespace (DESIGN2 §3): consumers must ignore kinds
-    they do not recognise.  Known kinds: ``message``, ``thought``,
+    Events have globally distinct ids. They are immutable. They have timestamps. They have
+    a kind field which is an open namespace. They have content in a standardised format.
+    They also have metadata for additional open data. The `complete` field is false
+    when the event was interrupted and only partially stored.
+
+    The precise way the conversation is structured and the meaning of "kind" and
+    "meta" are defined by the theatre. Code within the theatre can define its
+    own expectations for the fields, as the theatre creates the event objects.
+
+    Example kinds: ``message``, ``thought``,
     ``tool_call``, ``tool_result``, ``usage``, ``config_change``,
     ``turn_start``, ``turn_end``, ``notice``.
     """

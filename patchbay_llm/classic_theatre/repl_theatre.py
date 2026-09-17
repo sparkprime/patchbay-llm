@@ -1,73 +1,131 @@
 """The REPL theatre (DESIGN2 §5.2): synchronous turn-taking.
 
 Strict alternation, no preemption, no inbox, no cancellation.  The loop is the
-one in §5.2, adapted for the ``PartialEvent`` model (durable_partials.md):
+one in §5.2:
 
     while True:
-        state = integrate(state, human.read_line(state))
-        while turn_at(state) == "llm:main":
-            async for item in llm.act(state):
-                if isinstance(item, PartialEvent):
-                    spawn subscriber task   # live text
+        text = source()                           # human turn (inlined)
+        if text is None or text in {exit, quit}:
+            return
+        state = integrate(state, message(HUMAN, text))
+        state = integrate(state, turn_end(HUMAN))
+        while turn_at(state) == ASSISTANT:
+            stream = accumulate(engine.run(Request(model, prompt, knobs)), sink)
+            async for item in stream:
+                if isinstance(item, LiveUpdate):
+                    print live text                # synchronous, same loop
                 else:
-                    drain subscriber tasks  # no race with finals
                     state = integrate(state, item)
 
-The human side yields complete :class:`Event` s only (no PartialEvents), so it
-is unchanged.  The LLM side yields ``Event | PartialEvent``: a
-:class:`PartialEvent` handle once per new slot, then final :class:`Event` s on
-``Finish``.  The theatre spawns a background task per PartialEvent to subscribe
-and print deltas live, and drains all active subscriber tasks before
-processing a final Event -- ensuring no text is lost to a race between the
-subscriber and the final Event's newline.
+Both sides are inlined directly into the loop: the human turn is a single
+blocking read (no inference, no state consultation), and the assistant turn is
+a single inference call (render state -> request -> accumulate deltas -> yield
+events).  Neither needed the indirection of a participant class.
 
-``default_broadcast`` prints the actual increment per delta -- no diffing
-against a previous cumulative snapshot (durable_partials.md: the whole point
-of ``subscribe()``).  A completed LLM message gets a trailing newline.  Thought
-events are wrapped in ``<thinking>`` / ``</thinking>`` as they stream.
-``exit``, ``quit`` and EOF end the loop cleanly.
+``accumulate`` yields :class:`LiveUpdate` per delta (live increments, processed
+synchronously via pattern match on the variant) and :class:`Event` per slot on
+``Finish`` (the final record the theatre integrates).  No queues, no background
+tasks, no subscriber machinery — everything flows through one ``async for``
+loop.
+
+``default_broadcast`` prints the actual increment per delta — no diffing
+against a previous cumulative snapshot.  A completed LLM message gets a
+trailing newline.  Thought events are wrapped in ``<thinking>`` /
+``</thinking>`` as they stream.  ``exit``, ``quit`` and EOF end the loop
+cleanly.
 """
 
 import asyncio
-from typing import Any, Callable, Coroutine, Union
+from typing import Awaitable, Callable, Coroutine, Sequence, Union
 
 from patchbay_llm.classic_theatre.conversation import (
+    ASSISTANT,
+    HUMAN,
     Conversation,
     append_only,
+    message,
     turn_at,
+    turn_end,
 )
-from patchbay_llm.classic_theatre.participants.human import HumanParticipant
-from patchbay_llm.classic_theatre.participants.llm.accumulate import PartialEvent
-from patchbay_llm.classic_theatre.participants.llm.participant import LlmParticipant
+from patchbay_llm.classic_theatre.participants.llm.accumulate import (
+    accumulate,
+)
 from patchbay_llm.events import Event, Media
-from patchbay_llm.infer_engine.delta import TextDelta, ThoughtDelta
+from patchbay_llm.infer_engine.convert import to_part
+from patchbay_llm.infer_engine.engine import InferEngine
+from patchbay_llm.infer_engine.prompt import Message, Prompt, Role
+from patchbay_llm.infer_engine.request import Knobs, Request
+from patchbay_llm.live import LiveUpdate, MessageChunk, ThoughtChunk
 
-__all__ = ["run_repl", "default_broadcast", "Broadcast", "Item"]
+__all__ = [
+    "run_repl",
+    "default_broadcast",
+    "render",
+    "Broadcast",
+    "Item",
+    "Source",
+    "terminal_source",
+]
 
-Item = Union[Event, PartialEvent]
+Item = Union[Event, LiveUpdate]
 
-BroadcastFn = Callable[[Item], Coroutine[Any, Any, None]]
+Source = Callable[[], Awaitable[str | None]]
+
+BroadcastFn = Callable[[Item], Coroutine[None, None, None]]
 Broadcast = Callable[[], BroadcastFn]
+
+
+async def append_and_emit(
+    state: Conversation, emit: BroadcastFn, event: Event
+) -> Conversation:
+    """Emit an event and integrate it into state, in one line."""
+    await emit(event)
+    return append_only(state, event)
+
+
+# ── render: the state -> Prompt fold ────────────────────────────────────────
+
+_CONTENT_KINDS = ("message", "thought", "tool_call", "tool_result")
+
+
+def _role(author: str) -> Role:
+    assert author in (HUMAN, ASSISTANT)
+    return "llm" if author == ASSISTANT else "user"
+
+
+def render(state: Sequence[Event]) -> Prompt:
+    """Turn the conversation into a prompt.
+
+    Ignore unrecognised kinds, concatenate repeated roles.
+    """
+    messages: list[Message] = []
+    for e in state:
+        if e.kind not in _CONTENT_KINDS:
+            continue
+        role = _role(e.meta["author"])
+        content_as_parts = tuple(to_part(b) for b in e.content)
+        if messages and messages[-1].role == role:
+            # Ensure roles take turns in the prompt.
+            prev = messages[-1]
+            messages[-1] = Message(role, prev.parts + content_as_parts)
+        else:
+            messages.append(Message(role, content_as_parts))
+    return Prompt(messages=tuple(messages))
 
 
 def default_broadcast() -> BroadcastFn:
     """Print live text as it arrives, and final messages with newlines.
 
-    Under the PartialEvent model, LLM text is printed incrementally via
-    ``subscribe()`` -- each delta is the actual increment, no diffing needed
-    (durable_partials.md: the whole point of subscribe()).  Human messages
-    (which arrive as complete Events, not PartialEvents) are printed in full.
-    A completed LLM message gets a trailing newline.  Thought events are
-    wrapped in ``<thinking>`` / ``</thinking>`` as they stream.
-
-    The close tag is emitted when the thought's subscription ends (i.e. when
-    ``reify()`` is called), not when the final ``complete=True`` Event arrives
-    -- that promotion comes at ``Finish``, after the message text may have
-    already streamed, so waiting for it would nest the response inside the
-    thinking tag.
+    Each :class:`LiveUpdate` is the actual increment — no diffing, no cumulative
+    snapshot.  Human messages (which arrive as complete Events) are printed in
+    full.  A completed LLM message gets a trailing newline.  Thought events are
+    wrapped in ``<thinking>`` / ``</thinking>`` as they stream.  Tool-call
+    increments are not rendered live in the terminal today (the model's
+    argument stream is not useful to watch character-by-character; the
+    final ``tool_call`` Event is what the user sees).
     """
 
-    partial_ids: set[str] = set()
+    seen_ids: set[str] = set()
     thinking_open = False
 
     def _close_thinking() -> None:
@@ -78,83 +136,94 @@ def default_broadcast() -> BroadcastFn:
 
     async def _emit(item: Item) -> None:
         nonlocal thinking_open
-        if isinstance(item, PartialEvent):
-            partial_ids.add(item.id)
-            async for delta in item.subscribe():
-                if isinstance(delta, TextDelta) and item.kind == "message":
-                    _close_thinking()
-                    print(delta.text, end="", flush=True)
-                elif isinstance(delta, ThoughtDelta) and item.kind == "thought":
-                    if delta.text:
-                        if not thinking_open:
-                            print("<thinking>", end="", flush=True)
-                            thinking_open = True
-                        print(delta.text, end="", flush=True)
-            # subscription ended — reify was called
-            if item.kind == "thought":
+        match item:
+            case MessageChunk(id=uid, text=t) if t:
+                seen_ids.add(uid)
                 _close_thinking()
-        else:
-            event = item
-            if event.id in partial_ids:
-                # Text already printed via subscription; just finalize.
-                if event.kind == "message" and event.complete:
-                    _close_thinking()
-                    print()
-            else:
-                # Not from a PartialEvent (human message, turn_end, usage).
-                if event.kind == "message":
-                    block = event.content[0] if event.content else None
-                    if isinstance(block, Media) and block.mime == "text/plain":
+                print(t, end="", flush=True)
+            case ThoughtChunk(id=uid, text=t) if t:
+                seen_ids.add(uid)
+                if not thinking_open:
+                    print("<thinking>", end="", flush=True)
+                    thinking_open = True
+                print(t, end="", flush=True)
+            case Event():
+                event = item
+                if event.id in seen_ids:
+                    # Text already printed via deltas; just finalize.
+                    if event.kind == "thought":
                         _close_thinking()
-                        print(block.data.decode("utf-8", errors="replace"))
+                    if event.kind == "message" and event.complete:
+                        _close_thinking()
+                        print()
+                else:
+                    # Not from a LiveUpdate (human message, turn_end, usage).
+                    if event.kind == "message":
+                        block = event.content[0] if event.content else None
+                        if isinstance(block, Media) and block.mime == "text/plain":
+                            _close_thinking()
+                            print(block.data.decode("utf-8", errors="replace"))
 
     return _emit
 
 
-def _message_text(event: Event) -> str:
-    if not event.content:
-        return ""
-    block = event.content[0]
-    if isinstance(block, Media) and block.mime == "text/plain":
-        return block.data.decode("utf-8", errors="replace")
-    return ""
+def terminal_source(prompt: str = "> ") -> Source:
+    """A ``source`` backed by blocking ``input()``, wrapped in an executor.
+
+    Blocking ``input()`` would freeze the event loop, so it runs in the
+    default executor's thread pool and is awaited.  ``EOFError`` (Ctrl-D)
+    becomes ``None`` -- the end-of-input signal the theatre reads to exit.
+    """
+
+    async def _read() -> str | None:
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(None, lambda: input(prompt))
+        except EOFError:
+            return None
+
+    return _read
+
+
+terminal_sink = default_broadcast()
 
 
 async def run_repl(
-    human: HumanParticipant,
-    llm: LlmParticipant,
-    broadcast: Broadcast = default_broadcast,
+    source: Source,
+    sink: BroadcastFn,
+    engine: InferEngine,
+    model: str,
+    knobs: Knobs = Knobs(),
 ) -> None:
-    """Run a two-party REPL conversation to EOF or ``exit``/``quit``."""
-    participant_names = (human.name, llm.me)
+    """Run a two-party REPL conversation to EOF or ``exit``/``quit``.
+
+    The human turn is a single blocking read from ``source``.  The assistant
+    turn is a single inference call.  Both are inlined — no participant
+    classes.  ``source`` returns ``str | None``; ``None`` (EOF) and the
+    commands ``exit``/``quit`` end the loop cleanly.  Empty input is re-read
+    until a non-empty line arrives.
+    """
     state: Conversation = ()
-    emit = broadcast()
     while True:
-        got_message = False
-        async for event in human.act(state):
-            if event.kind == "message":
-                got_message = True
-                if _message_text(event).strip() in ("exit", "quit"):
-                    return
-            await emit(event)
-            if event.complete:
-                state = append_only(state, event)
-        if not got_message:
-            return
-        while turn_at(state, participant_names) == llm.me:
-            live: set[asyncio.Task[None]] = set()
-            async for item in llm.act(state):
-                if isinstance(item, PartialEvent):
-                    task = asyncio.create_task(emit(item))
-                    live.add(task)
-                    task.add_done_callback(live.discard)
-                else:
-                    if live:
-                        await asyncio.gather(*live)
-                        live.clear()
-                    await emit(item)
-                    if item.complete:
-                        state = append_only(state, item)
-            if live:
-                await asyncio.gather(*live)
-                live.clear()
+        # ── Human turn ─────────────────────────────────────────────────────
+        while True:
+            text = await source()
+            if text is None or text.strip() in ("exit", "quit"):
+                return
+            if not text.strip():
+                continue
+            msg = message(HUMAN, text)
+            state = await append_and_emit(state, sink, msg)
+            state = await append_and_emit(state, sink, turn_end(HUMAN, "relinquished"))
+            break
+
+        # ── Assistant turn ─────────────────────────────────────────────────
+        while turn_at(state) == ASSISTANT:
+            request = Request(model=model, prompt=render(state), knobs=knobs)
+            async for item in accumulate(engine.run(request)):
+                await sink(item)
+                if isinstance(item, Event) and item.complete:
+                    state = append_only(state, item)
+            state = await append_and_emit(
+                state, sink, turn_end(ASSISTANT, "relinquished")
+            )

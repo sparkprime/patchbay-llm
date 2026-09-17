@@ -6,21 +6,30 @@ is theatre-defined... ``Conversation`` is the only shape that ships").
 earns its name from; ``turn_at`` is the two-party alternation fold the REPL
 theatre (DESIGN2 §5.2) needs.
 
+A classic theatre has exactly two participants -- one ``HUMAN`` and one
+``ASSISTANT`` -- so the participant identities are fixed constants, not
+constructor-injected names.  Every event in the journal carries an ``author``
+field drawn from this two-element set.
+
 These are theatre-level concerns, not substrate: a different theatre
 (preemptible, concurrent, search) would define its own ``turn_at`` and its own
 ``integrate`` over the same ``Event`` substrate.  They live here rather than
-in ``repl_theatre.py`` because ``HumanParticipant`` and ``LlmParticipant`` both
-need ``turn_end``/``message`` constructors, and importing them from the theatre
-would make participants depend on a specific theatre -- the opposite of the
-layering DESIGN2 §4 defends (``LlmParticipant`` never imports the theatre).
+in ``repl_theatre.py`` so the ``render``/``accumulate`` layer can import
+``turn_end``/``message`` constructors without depending on a specific theatre
+-- the opposite of the layering DESIGN2 §4 defends (the inference layer never
+imports the theatre).
 """
 
 from time import time
+from typing import Literal
 
 from patchbay_llm.events import Event, Media, new_id
 
 __all__ = [
     "Conversation",
+    "Participant",
+    "HUMAN",
+    "ASSISTANT",
     "append_only",
     "turn_at",
     "message",
@@ -28,6 +37,10 @@ __all__ = [
 ]
 
 Conversation = tuple[Event, ...]
+
+Participant = Literal["human", "assistant"]
+HUMAN: Participant = "human"
+ASSISTANT: Participant = "assistant"
 
 _CONTENT_KINDS = ("message", "thought", "tool_call", "tool_result")
 
@@ -37,30 +50,29 @@ def append_only(state: Conversation, event: Event) -> Conversation:
     return state + (event,)
 
 
-def turn_at(state: Conversation, participants: tuple[str, str]) -> str | None:
+def turn_at(state: Conversation) -> Participant | None:
     """Two-party strict alternation (DESIGN2 §5.2).
 
     The next participant is whoever did *not* author the most recent content
-    event or ``turn_end``.  An empty state is the first participant's turn.
-    ``turn_end`` is the explicit handoff signal; absent one, the last author of
-    a content event is the speaker whose turn just ended -- both collapse to
-    the same answer under strict alternation.
+    event or ``turn_end``.  An empty state is the human's turn (the human
+    always speaks first).  ``turn_end`` is the explicit handoff signal; absent
+    one, the last author of a content event is the speaker whose turn just
+    ended -- both collapse to the same answer under strict alternation.
     """
     if not state:
-        return participants[0]
+        return HUMAN
     last_author: str | None = None
     for e in reversed(state):
         if e.kind == "turn_end" or e.kind in _CONTENT_KINDS:
-            last_author = e.meta.get("author")
+            last_author = e.meta["author"]
             break
-    if last_author is None:
-        return participants[0]
-    if last_author == participants[0]:
-        return participants[1]
-    return participants[0]
+    assert last_author is not None
+    if last_author == HUMAN:
+        return ASSISTANT
+    return HUMAN
 
 
-def message(author: str, text: str) -> Event:
+def message(author: Participant, text: str) -> Event:
     """A complete ``message`` event authored by ``author``."""
     return Event(
         id=new_id(),
@@ -72,7 +84,7 @@ def message(author: str, text: str) -> Event:
     )
 
 
-def turn_end(participant: str, reason: str = "relinquished") -> Event:
+def turn_end(participant: Participant, reason: str = "relinquished") -> Event:
     """A ``turn_end`` event: ``participant`` relinquished the floor for ``reason``.
 
     ``meta.reason`` is one of ``relinquished``, ``cancelled``, ``cap``, ``error``
