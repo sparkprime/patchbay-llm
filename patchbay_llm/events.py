@@ -33,9 +33,9 @@ this module and ``infer_engine.prompt``, not the other way round.
 
 The bridge between ``infer_engine.delta.Delta`` (the provider stream) and
 ``Event`` (the durable record) is ``accumulate`` (in
-``classic_theatre.participants.llm.accumulate``): it assigns ids, converts each
-``Delta`` to a :class:`LiveUpdate` for any live consumer, and joins the
-per-slot increments into the one final :class:`Event` per slot on ``Finish``.
+``classic_theatre.repl_theatre``): it assigns ids, converts each ``Delta`` to a
+:class:`LiveUpdate` for any live consumer, and joins the per-slot increments
+into the one final :class:`Event` per slot on ``Finish``.
 """
 
 import uuid

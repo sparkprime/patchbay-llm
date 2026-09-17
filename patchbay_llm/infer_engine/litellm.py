@@ -597,14 +597,14 @@ def _build_assistant(msg: Message) -> list[dict[str, Any]]:
     return []
 
 
-def _result_content(r: Result) -> str:
-    texts: list[str] = []
+def _result_content(r: Result) -> str | list[dict[str, Any]]:
+    if all(m.mime == "text/plain" for m in r.content):
+        texts = [m.data.decode("utf-8", errors="replace") for m in r.content]
+        return "\n".join(texts) if texts else ""
+    parts: list[dict[str, Any]] = []
     for m in r.content:
-        if m.mime == "text/plain":
-            texts.append(m.data.decode("utf-8", errors="replace"))
-        else:
-            texts.append(f"[{m.mime}: {len(m.data)} bytes]")
-    return "\n".join(texts) if texts else ""
+        parts.extend(_media_parts(m))
+    return parts
 
 
 def _parts_to_content(parts: Sequence[Part]) -> list[dict[str, Any]] | str:
@@ -623,7 +623,11 @@ def _parts_to_content(parts: Sequence[Part]) -> list[dict[str, Any]] | str:
             content.append({"type": "text", "text": json.dumps(p.args)})
         else:
             # Result -- the only remaining Part variant.
-            content.append({"type": "text", "text": _result_content(p)})
+            result_content = _result_content(p)
+            if isinstance(result_content, str):
+                content.append({"type": "text", "text": result_content})
+            else:
+                content.extend(result_content)
     if not content:
         return ""
     if len(content) == 1 and content[0].get("type") == "text":

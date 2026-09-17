@@ -11,9 +11,8 @@ from typing import AsyncIterator
 import pytest
 
 from patchbay_llm.classic_theatre.conversation import ASSISTANT
-from patchbay_llm.classic_theatre.participants.llm.accumulate import (
+from patchbay_llm.classic_theatre.repl_theatre import (
     accumulate,
-    reify_block,
 )
 from patchbay_llm.events import Event, EventId, Media, Thought, ToolCall, ToolResult
 from patchbay_llm.infer_engine.delta import (
@@ -32,6 +31,7 @@ from patchbay_llm.live import (
     ToolCallChunk,
     ToolResultChunk,
 )
+from patchbay_llm.reify import reify_block
 
 
 def _usage(model: str = "m") -> Usage:
