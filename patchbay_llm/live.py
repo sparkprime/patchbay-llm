@@ -47,16 +47,16 @@ from typing import Union
 from patchbay_llm.events import EventId
 
 __all__ = [
-    "MessageChunk",
-    "ThoughtChunk",
-    "ToolCallChunk",
-    "ToolResultChunk",
+    "MessageUpdate",
+    "ThoughtUpdate",
+    "ToolCallUpdate",
+    "ToolResultUpdate",
     "LiveUpdate",
 ]
 
 
 @dataclass(frozen=True)
-class MessageChunk:
+class MessageUpdate:
     """One increment of generated message text for slot ``id``.
 
     ``text`` is the raw increment for this chunk, not the cumulative text so
@@ -70,7 +70,7 @@ class MessageChunk:
 
 
 @dataclass(frozen=True)
-class ThoughtChunk:
+class ThoughtUpdate:
     """One increment of reasoning text for slot ``id``.
 
     ``signature`` arrives on the last chunk of the slot (or ``None`` until
@@ -84,7 +84,7 @@ class ThoughtChunk:
 
 
 @dataclass(frozen=True)
-class ToolCallChunk:
+class ToolCallUpdate:
     """One increment of a tool-call's arguments for slot ``id``.
 
     Two distinct ids are in play and both must survive into the final
@@ -114,7 +114,7 @@ class ToolCallChunk:
 
 
 @dataclass(frozen=True)
-class ToolResultChunk:
+class ToolResultUpdate:
     """One increment of a tool's output for the ``tool_result`` event ``id``.
 
     A tool that takes time (a bash command, an HTTP request) should show its
@@ -144,4 +144,4 @@ class ToolResultChunk:
     failed: bool | None = None
 
 
-LiveUpdate = Union[MessageChunk, ThoughtChunk, ToolCallChunk, ToolResultChunk]
+LiveUpdate = Union[MessageUpdate, ThoughtUpdate, ToolCallUpdate, ToolResultUpdate]

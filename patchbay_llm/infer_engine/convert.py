@@ -32,7 +32,7 @@ from patchbay_llm.events import (
 from patchbay_llm.infer_engine.delta import CallDelta, Delta, TextDelta, ThoughtDelta
 from patchbay_llm.infer_engine.prompt import Call, Part, Result
 from patchbay_llm.infer_engine.prompt import Thought as InferThought
-from patchbay_llm.live import LiveUpdate, MessageChunk, ThoughtChunk, ToolCallChunk
+from patchbay_llm.live import LiveUpdate, MessageUpdate, ThoughtUpdate, ToolCallUpdate
 
 __all__ = ["to_part", "from_part", "to_live_update"]
 
@@ -88,11 +88,11 @@ def to_live_update(slot_id: EventId, delta: Delta) -> LiveUpdate:
     can correlate a live stream with the eventual :class:`Event`.
     """
     if isinstance(delta, TextDelta):
-        return MessageChunk(id=slot_id, text=delta.text)
+        return MessageUpdate(id=slot_id, text=delta.text)
     if isinstance(delta, ThoughtDelta):
-        return ThoughtChunk(id=slot_id, text=delta.text, signature=delta.signature)
+        return ThoughtUpdate(id=slot_id, text=delta.text, signature=delta.signature)
     if isinstance(delta, CallDelta):
-        return ToolCallChunk(
+        return ToolCallUpdate(
             id=slot_id, call_id=delta.id, tool=delta.tool, args=delta.args
         )
     raise TypeError(f"cannot convert {type(delta).__name__} to a LiveUpdate")

@@ -123,24 +123,26 @@ ContentBlock = Union[Media, Thought, ToolCall, ToolResult]
 
 @dataclass(frozen=True)
 class Event:
-    """A fundamental piece of knowledge / information.
+    """A piece of information that was raised during a conversation.
 
-    LLMs are trained to respond in the context of a conversation expressed as a sequence
-    of events. We don't have to take this representation literally. But we do have to
-    express what we want within those concepts.
+    LLMs are trained to respond in the context of a conversation expressed as a
+    sequence of events. We don't have to take this representation literally. But
+    we do have to express what we want within those concepts.
 
-    Events have globally distinct ids. They are immutable. They have timestamps. They have
-    a kind field which is an open namespace. They have content in a standardised format.
-    They also have metadata for additional open data. The `complete` field is false
-    when the event was interrupted and only partially stored.
+    Globally defined fields: Events have globally distinct ids. They are
+    immutable. They have timestamps. They have content in a standardised format.
+    The `complete` field is false when the event was interrupted and only
+    partially stored.
 
-    The precise way the conversation is structured and the meaning of "kind" and
-    "meta" are defined by the theatre. Code within the theatre can define its
-    own expectations for the fields, as the theatre creates the event objects.
+    Theatre-defined fields: They have a kind field which is an open namespace.
+    They also have metadata for additional open data. The precise way the
+    conversation is structured and the meaning of "kind" and "meta" are defined
+    by the theatre. As the theatre creates the events, it can impose its own
+    expectations on these fields.
 
-    Example kinds: ``message``, ``thought``,
-    ``tool_call``, ``tool_result``, ``usage``, ``config_change``,
-    ``turn_start``, ``turn_end``, ``notice``.
+    Example kinds: ``message``, ``thought``, ``tool_call``, ``tool_result``,
+    ``usage``, ``config_change``, ``turn_start``, ``turn_end``, ``notice``. (But
+    it depends on the theatre).
     """
 
     id: EventId

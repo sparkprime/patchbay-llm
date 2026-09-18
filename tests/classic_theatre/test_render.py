@@ -3,7 +3,7 @@
 from time import time
 
 from patchbay_llm.classic_theatre.conversation import ASSISTANT, HUMAN, message
-from patchbay_llm.classic_theatre.repl_theatre import render
+from patchbay_llm.classic_theatre.seam import to_prompt
 from patchbay_llm.events import Event, Media, Thought, ToolCall, new_id
 from patchbay_llm.infer_engine.prompt import Call, Prompt
 
@@ -36,7 +36,7 @@ def test_render_collapses_authors_to_roles() -> None:
         message(HUMAN, "hello"),
         message(ASSISTANT, "hi there"),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     assert prompt.messages[0].role == "user"
     assert prompt.messages[1].role == "llm"
 
@@ -55,7 +55,7 @@ def test_render_skips_usage_turn_start_turn_end() -> None:
         ),
         Event(id=new_id(), ts=time(), kind="usage", meta={"author": ASSISTANT}),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     assert len(prompt.messages) == 2
     assert prompt.messages[0].role == "user"
     assert prompt.messages[1].role == "llm"
@@ -76,7 +76,7 @@ def test_render_includes_interrupted_messages() -> None:
         meta={"author": ASSISTANT},
         complete=False,
     )
-    prompt = render((e1, partial))
+    prompt = to_prompt((e1, partial))
     assert len(prompt.messages) == 2
     assert prompt.messages[0].role == "user"
     assert prompt.messages[1].role == "llm"
@@ -89,7 +89,7 @@ def test_render_converts_content_blocks() -> None:
         _thought(ASSISTANT, "reasoning..."),
         message(ASSISTANT, "4"),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     assert len(prompt.messages) == 2
     llm_msg = prompt.messages[1]
     assert llm_msg.role == "llm"
@@ -103,7 +103,7 @@ def test_render_groups_consecutive_same_role() -> None:
         message(HUMAN, "b"),
         message(ASSISTANT, "c"),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     assert len(prompt.messages) == 2
     assert prompt.messages[0].role == "user"
     assert len(prompt.messages[0].parts) == 2
@@ -116,7 +116,7 @@ def test_render_tool_call_becomes_a_call_part() -> None:
         message(HUMAN, "weather?"),
         _tool_call(ASSISTANT, call),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     llm_msg = prompt.messages[1]
     assert llm_msg.role == "llm"
 
@@ -126,7 +126,7 @@ def test_render_tool_call_becomes_a_call_part() -> None:
 
 def test_render_empty_state_yields_empty_prompt() -> None:
     """An empty conversation renders to an empty prompt."""
-    prompt = render(())
+    prompt = to_prompt(())
     assert isinstance(prompt, Prompt)
     assert not prompt.messages
 
@@ -138,6 +138,6 @@ def test_render_preserves_order() -> None:
         message(ASSISTANT, "second"),
         message(HUMAN, "third"),
     )
-    prompt = render(state)
+    prompt = to_prompt(state)
     roles = [m.role for m in prompt.messages]
     assert roles == ["user", "llm", "user"]

@@ -1,7 +1,7 @@
 """The classic theatre: a perfect-information dyad of one human and one agent.
 
 A **classic theatre** is a theatre of exactly two participants, one of which is
-a human, whose journal is **totally ordered** -- append-only, no fork, no join,
+a human. The journal is **totally ordered** -- append-only, no fork, no join,
 no rewind.  Both participants have shared access to the complete history (the
 journal), so the interaction is a *perfect-information dyad*: the information
 channel is complete by construction.  Recall imperfections -- human forgetting,
@@ -15,9 +15,8 @@ human), group chats (concurrent theatre), or search (branching state).  Those
 are different composition rules over the same participants and journal, and they
 are future siblings of this package, not replacements for it.
 
-DESIGN2 §5.2 ("Synchronous turn-taking: the REPL") is the canonical instance:
-strict alternation, no preemption, no inbox, no cancellation.  The
-:class:`~patchbay_llm.classic_theatre.repl_theatre` module implements that loop;
-:class:`~patchbay_llm.classic_theatre.conversation` defines the linear state
-shape and its folds.
+Although the structure of the theatre is the same, we provide two example theatres
+for two different user interfaces - ACP for graphical UIs and also a simple REPL
+for kicking the tyres from the commandline.
+
 """

@@ -11,9 +11,7 @@ from typing import AsyncIterator
 import pytest
 
 from patchbay_llm.classic_theatre.conversation import ASSISTANT
-from patchbay_llm.classic_theatre.repl_theatre import (
-    accumulate,
-)
+from patchbay_llm.classic_theatre.seam import to_events_and_live_updates
 from patchbay_llm.events import Event, EventId, Media, Thought, ToolCall, ToolResult
 from patchbay_llm.infer_engine.delta import (
     CallDelta,
@@ -26,12 +24,12 @@ from patchbay_llm.infer_engine.delta import (
 )
 from patchbay_llm.live import (
     LiveUpdate,
-    MessageChunk,
-    ThoughtChunk,
-    ToolCallChunk,
-    ToolResultChunk,
+    MessageUpdate,
+    ThoughtUpdate,
+    ToolCallUpdate,
+    ToolResultUpdate,
 )
-from patchbay_llm.reify import reify_block
+from patchbay_llm.freeze import freeze_block
 
 
 def _usage(model: str = "m") -> Usage:
@@ -48,7 +46,7 @@ async def _stream(deltas: list[Delta]) -> AsyncIterator[Delta]:
 async def _drain(
     deltas: list[Delta],
 ) -> list[Event | LiveUpdate]:
-    return [e async for e in accumulate(_stream(deltas))]
+    return [e async for e in to_events_and_live_updates(_stream(deltas))]
 
 
 # ── reify_block: the free-standing join function ───────────────────────────
@@ -56,13 +54,13 @@ async def _drain(
 
 def _update(eid: EventId, kind: str, **kwargs: object) -> LiveUpdate:
     if kind == "message":
-        return MessageChunk(id=eid, **kwargs)  # type: ignore[arg-type]
+        return MessageUpdate(id=eid, **kwargs)  # type: ignore[arg-type]
     if kind == "thought":
-        return ThoughtChunk(id=eid, **kwargs)  # type: ignore[arg-type]
+        return ThoughtUpdate(id=eid, **kwargs)  # type: ignore[arg-type]
     if kind == "tool_call":
-        return ToolCallChunk(id=eid, **kwargs)  # type: ignore[arg-type]
+        return ToolCallUpdate(id=eid, **kwargs)  # type: ignore[arg-type]
     if kind == "tool_result":
-        return ToolResultChunk(id=eid, **kwargs)  # type: ignore[arg-type]
+        return ToolResultUpdate(id=eid, **kwargs)  # type: ignore[arg-type]
     raise ValueError(f"unknown kind: {kind!r}")
 
 
@@ -74,7 +72,7 @@ def test_reify_block_text() -> None:
         _update(eid, "message", text=" check the"),
         _update(eid, "message", text=" config."),
     ]
-    block = reify_block("message", updates)
+    block = freeze_block("message", updates)
     assert isinstance(block, Media)
     assert block.data == b"Let me check the config."
 
@@ -86,7 +84,7 @@ def test_reify_block_thought() -> None:
         _update(eid, "thought", text="hmm"),
         _update(eid, "thought", text=" let's see", signature="sig123"),
     ]
-    block = reify_block("thought", updates)
+    block = freeze_block("thought", updates)
     assert isinstance(block, Thought)
     assert block.text == "hmm let's see"
     assert block.signature == "sig123"
@@ -100,7 +98,7 @@ def test_reify_block_tool_call() -> None:
         _update(eid, "tool_call", args='{"city": "Pa'),
         _update(eid, "tool_call", args='ris"}'),
     ]
-    block = reify_block("tool_call", updates)
+    block = freeze_block("tool_call", updates)
     assert isinstance(block, ToolCall)
     assert block.id == "call_1"
     assert block.tool == "get_weather"
@@ -110,7 +108,7 @@ def test_reify_block_tool_call() -> None:
 
 def test_reify_block_empty() -> None:
     """An empty update list still produces a valid block."""
-    block = reify_block("message", [])
+    block = freeze_block("message", [])
     assert isinstance(block, Media)
     assert block.data == b""
 
@@ -118,7 +116,7 @@ def test_reify_block_empty() -> None:
 def test_reify_block_unknown_kind_raises() -> None:
     """An unknown kind raises ValueError."""
     with pytest.raises(ValueError, match="unknown slot kind"):
-        reify_block("nope", [])
+        freeze_block("nope", [])
 
 
 def test_reify_block_tool_result() -> None:
@@ -129,7 +127,7 @@ def test_reify_block_tool_result() -> None:
         _update(eid, "tool_result", text="world"),
         _update(eid, "tool_result", failed=True),
     ]
-    block = reify_block("tool_result", updates)
+    block = freeze_block("tool_result", updates)
     assert isinstance(block, ToolResult)
     assert block.call == "call_1"
     assert block.failed is True
@@ -140,7 +138,7 @@ def test_reify_block_tool_result() -> None:
 
 def test_reify_block_tool_result_empty() -> None:
     """An empty result list produces a ToolResult with empty content."""
-    block = reify_block("tool_result", [])
+    block = freeze_block("tool_result", [])
     assert isinstance(block, ToolResult)
     assert block.failed is False
     assert block.content[0].data == b""
@@ -162,8 +160,9 @@ async def test_text_yields_updates_then_final_event_on_finish() -> None:
     # 3 LiveUpdates + 1 final Event + 1 usage Event
     assert len(items) == 5
     for i in range(3):
-        assert isinstance(items[i], MessageChunk)
-        assert items[i].text
+        chunk = items[i]
+        assert isinstance(chunk, MessageUpdate)
+        assert chunk.text
 
     final = items[3]
     assert isinstance(final, Event)
@@ -209,8 +208,8 @@ async def test_distinct_slots_get_distinct_ids_and_variants() -> None:
 
     # 3 LiveUpdates: ThoughtChunk(0), MessageChunk(1), ThoughtChunk(0)
     assert len(updates) == 3
-    assert isinstance(updates[0], ThoughtChunk)
-    assert isinstance(updates[1], MessageChunk)
+    assert isinstance(updates[0], ThoughtUpdate)
+    assert isinstance(updates[1], MessageUpdate)
     assert updates[0].id != updates[1].id
 
     # 2 final Events
@@ -237,7 +236,7 @@ async def test_tool_call_args_are_a_string_and_never_parsed_here() -> None:
         _update(eid, "tool_call", call_id="call_1", tool="get_weather"),
         _update(eid, "tool_call", args='{"city": "Pa'),
     ]
-    snap = reify_block("tool_call", prefix_updates)
+    snap = freeze_block("tool_call", prefix_updates)
     assert isinstance(snap, ToolCall)
     with pytest.raises(json.JSONDecodeError):
         json.loads(snap.args)
@@ -310,14 +309,14 @@ def test_reify_block_after_any_prefix_is_structurally_valid() -> None:
         by_kind: dict[str, list[LiveUpdate]] = {}
         for u in prefix:
             kind = {
-                MessageChunk: "message",
-                ThoughtChunk: "thought",
-                ToolCallChunk: "tool_call",
-                ToolResultChunk: "tool_result",
+                MessageUpdate: "message",
+                ThoughtUpdate: "thought",
+                ToolCallUpdate: "tool_call",
+                ToolResultUpdate: "tool_result",
             }[type(u)]
             by_kind.setdefault(kind, []).append(u)
         for kind, kind_updates in by_kind.items():
-            block = reify_block(kind, kind_updates)
+            block = freeze_block(kind, kind_updates)
             if kind == "message":
                 assert isinstance(block, Media)
             elif kind == "thought":
@@ -334,7 +333,7 @@ def test_reify_block_after_any_prefix_is_structurally_valid() -> None:
 async def test_message_chunk_carries_text_increment() -> None:
     """A TextDelta becomes a MessageChunk with text populated."""
     items = await _drain([TextDelta(0, "hello"), Finish(Stop.END, _usage())])
-    u = [i for i in items if isinstance(i, MessageChunk)][0]
+    u = [i for i in items if isinstance(i, MessageUpdate)][0]
     assert u.text == "hello"
 
 
@@ -343,7 +342,7 @@ async def test_thought_chunk_carries_signature() -> None:
     items = await _drain(
         [ThoughtDelta(0, "hmm", signature="sig"), Finish(Stop.END, _usage())]
     )
-    u = [i for i in items if isinstance(i, ThoughtChunk)][0]
+    u = [i for i in items if isinstance(i, ThoughtUpdate)][0]
     assert u.text == "hmm"
     assert u.signature == "sig"
 
@@ -356,7 +355,7 @@ async def test_tool_call_chunk_carries_call_id_tool_args() -> None:
             Finish(Stop.TOOLS, _usage()),
         ]
     )
-    u = [i for i in items if isinstance(i, ToolCallChunk)][0]
+    u = [i for i in items if isinstance(i, ToolCallUpdate)][0]
     assert u.call_id == "c1"
     assert u.tool == "run"
     assert u.args == '{"x":1}'

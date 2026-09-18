@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+acp-ws = ["websockets"]
 dev = [
     "pyright==1.1.411",
     "pytest>=8.0.0",
@@ -70,6 +71,8 @@ profile = "black"
 
 [tool.pyright]
 typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
 exclude = [".venv/**", "**/__pycache__", "**./.*", "build/**", "check_test_refs.py"]
 
 [tool.pylint.messages_control]
